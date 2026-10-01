@@ -6,6 +6,29 @@ import { Cloud, Code2, FileCode2, GitBranch, Play, RotateCcw, Terminal, UserPlus
 type Commit = { id: string; message: string; branch: string; parent?: string; mergeParent?: string; content: string };
 type Branch = { head: string; content: string };
 type Line = { kind: 'cmd' | 'ok' | 'info' | 'error'; text: string };
+type Lesson = { title: string; goal: string; steps: { command: string; watch: string }[] };
+type Stage = { title: string; subtitle: string; lessons: Lesson[] };
+
+const curriculum: Stage[] = [
+  { title: '第一阶段 · 入门', subtitle: '认识 Git 与核心指令', lessons: [
+    { title: '01 观察仓库状态', goal: '先学会问 Git：现在发生了什么？', steps: [{ command: 'git status', watch: '看终端如何区分工作区、暂存区状态' }, { command: 'git diff', watch: '修改右上代码后，看未提交的差异' }] },
+    { title: '02 保存一次版本', goal: '理解工作区 → 暂存区 → 提交的三步流转。', steps: [{ command: 'git add .', watch: '看代码区状态变成“已暂存”' }, { command: 'git commit -m "完成第一次修改"', watch: '看右下提交树新增节点' }, { command: 'git log', watch: '在终端查看提交历史' }] },
+    { title: '03 分支与切换', goal: '理解分支只是指向某次提交的路标。', steps: [{ command: 'git branch yhx', watch: '看右下出现 yhx，但 HEAD 仍在 main' }, { command: 'git switch yhx', watch: '看 HEAD 和代码视图一起切换' }] },
+    { title: '04 合并与恢复', goal: '练习整合分支，并学会安全撤销未提交修改。', steps: [{ command: 'git merge main', watch: '看提交指针是否快进或产生冲突' }, { command: 'git restore src/App.tsx', watch: '看工作区恢复到最近提交' }] },
+  ]},
+  { title: '第二阶段 · 个人项目', subtitle: '独立完成一个小项目', lessons: [
+    { title: '01 功能分支开发', goal: '每个功能使用独立分支，保持 main 稳定。', steps: [{ command: 'git switch -c feature/home', watch: '看新分支从当前提交分叉' }, { command: 'git status', watch: '编辑代码并确认修改范围' }] },
+    { title: '02 小步提交', goal: '把一个功能拆成清晰、可回退的提交。', steps: [{ command: 'git add .', watch: '确认暂存内容' }, { command: 'git commit -m "完善首页"', watch: '看 feature 分支向前移动' }] },
+    { title: '03 合回主线', goal: '完成自检后，把功能分支合入 main。', steps: [{ command: 'git switch main', watch: '确认代码回到主线快照' }, { command: 'git merge feature/home', watch: '观察 fast-forward 或合并冲突' }] },
+    { title: '04 发布前检查', goal: '用状态、差异和历史确认可发布版本。', steps: [{ command: 'git status', watch: '确保工作区干净' }, { command: 'git log', watch: '检查提交信息是否表达清楚' }] },
+  ]},
+  { title: '第三阶段 · 团队协作', subtitle: '远端、同步与冲突', lessons: [
+    { title: '01 认识三个仓库状态', goal: '区分本地分支、origin/* 跟踪分支和真实远端。', steps: [{ command: 'git fetch', watch: '看 origin/* 更新，但当前代码不变' }, { command: 'git merge origin/main', watch: '再把远端变化合入本地' }] },
+    { title: '02 拉取与推送', goal: '掌握团队中最常见的同步闭环。', steps: [{ command: 'git pull', watch: '观察 fetch + merge 两阶段反馈' }, { command: 'git push', watch: '看远端指针移动或被拒绝' }] },
+    { title: '03 处理协作冲突', goal: '理解冲突不是报错，而是需要人做决定。', steps: [{ command: 'git merge origin/main', watch: '在编辑器寻找 <<<<<<< 冲突标记' }, { command: 'git add .', watch: '删除冲突标记后标记为已解决' }, { command: 'git commit -m "解决合并冲突"', watch: '看提交树记录解决结果' }] },
+    { title: '04 团队工作习惯', goal: '形成先同步、短分支、小提交、再推送的节奏。', steps: [{ command: 'git fetch', watch: '开始工作前确认远端变化' }, { command: 'git status', watch: '提交前确认文件范围' }, { command: 'git push', watch: '把经过验证的提交分享给团队' }] },
+  ]},
+];
 
 const firstCode = `export default function App() {
   return <h1>你好，Git！</h1>;
@@ -18,6 +41,9 @@ const firstCommits: Commit[] = [
 function shortId() { return Math.random().toString(16).slice(2, 9); }
 
 export default function Home() {
+  const [stageIndex, setStageIndex] = useState(0);
+  const [lessonIndex, setLessonIndex] = useState(0);
+  const [completed, setCompleted] = useState<Record<string, boolean>>({});
   const [commits, setCommits] = useState(firstCommits);
   const [branches, setBranches] = useState<Record<string, Branch>>({ main: { head: 'd4e5f6a', content: firstCode } });
   const [current, setCurrent] = useState('main');
@@ -119,7 +145,7 @@ export default function Home() {
     return [out('error', `暂不支持“${cmd}”。输入 help 查看命令。`)];
   }
 
-  function run(e: FormEvent) { e.preventDefault(); const cmd = command.trim(); if (!cmd) return; setLines(v => [...v, out('cmd', `$ ${cmd}`), ...execute(cmd)]); setCommand(''); }
+  function run(e: FormEvent) { e.preventDefault(); const cmd = command.trim(); if (!cmd) return; setLines(v => [...v, out('cmd', `$ ${cmd}`), ...execute(cmd)]); const key = `${stageIndex}-${lessonIndex}-${cmd}`; if (curriculum[stageIndex].lessons[lessonIndex].steps.some(s => s.command === cmd)) setCompleted(v => ({ ...v, [key]: true })); setCommand(''); }
   function simulateTeammate() { const branch = 'main', parent = serverHeads[branch], id = shortId(), content = `${serverCode[branch]}\n\n// 队友刚刚更新了远端代码`; setCommits(v => [...v, { id, message: '队友更新了远端代码', branch: 'remote/main', parent, content }]); setServerHeads(v => ({ ...v, [branch]: id })); setServerCode(v => ({ ...v, [branch]: content })); setLines(v => [...v, out('info', '☁ 队友已向远端 main 推送了一个提交'), out('info', '你的 origin/main 尚未更新；请运行 git fetch')]); }
   function reset() { setCommits(firstCommits); setBranches({ main: { head: 'd4e5f6a', content: firstCode } }); setCurrent('main'); setCode(firstCode); setStaged(false); setConflict(false); setRemoteHeads({ main: 'a1b2c3d' }); setRemoteCode({ main: 'export default function App() {}' }); setServerHeads({ main: 'a1b2c3d' }); setServerCode({ main: 'export default function App() {}' }); setViewRef('local:main'); setSelectedFile('src/App.tsx'); setLines([out('info', '练习场已重置。')]); }
 
@@ -128,6 +154,7 @@ export default function Home() {
   const viewingCurrent = viewKind === 'local' && viewName === current;
   const viewedCode = viewKind === 'remote' ? (remoteCode[viewName] ?? '') : viewingCurrent ? code : (branches[viewName]?.content ?? '');
   const editorValue = selectedFile === 'README.md' ? `# Git 好好学示例项目\n\n当前正在查看：${viewKind === 'remote' ? 'origin/' : ''}${viewName}\n\n请切换到 src/App.tsx 练习代码修改。` : viewedCode;
+  const lesson = curriculum[stageIndex].lessons[lessonIndex];
   return <main className="h-screen overflow-hidden bg-[#f3efe5] text-[#18251e]">
     <header className="flex h-14 items-center justify-between border-b border-[#1d3d2b]/15 bg-[#fbf8f0] px-4 lg:px-6">
       <div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#173e2b] text-white"><GitBranch size={18}/></span><b>Git 好好学</b><span className="rounded-full bg-[#e5eadc] px-2 py-1 text-[10px] font-bold text-[#52705c]">可编辑实验室</span></div>
@@ -135,7 +162,11 @@ export default function Home() {
       <div className="flex gap-2"><button onClick={simulateTeammate} className="flex items-center gap-2 rounded-lg border border-[#b7732e]/25 bg-[#fff2dc] px-3 py-2 text-xs font-semibold text-[#86501e]"><UserPlus size={13}/>模拟队友提交</button><button onClick={reset} className="flex items-center gap-2 rounded-lg border border-[#1d3d2b]/20 bg-white px-3 py-2 text-xs font-semibold"><RotateCcw size={13}/>重置</button></div>
     </header>
 
-    <div className="grid h-[calc(100vh-56px)] min-h-0 grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(340px,40%)_minmax(0,60%)]">
+    <div className="grid h-[calc(100vh-56px)] min-h-0 grid-cols-1 xl:grid-cols-[224px_minmax(0,1fr)]">
+      <aside className="hidden min-h-0 overflow-y-auto border-r border-[#1d3d2b]/15 bg-[#fbf8f0] p-3 xl:block"><p className="px-2 pb-3 pt-1 text-[10px] font-bold uppercase tracking-[.18em] text-[#7d877f]">从入门到团队协作</p>{curriculum.map((stage, si) => <div key={stage.title} className="mb-3"><button onClick={() => { setStageIndex(si); setLessonIndex(0); }} className={`w-full rounded-xl p-3 text-left ${si === stageIndex ? 'bg-[#173e2b] text-white shadow-sm' : 'hover:bg-[#eeece3]'}`}><p className="text-xs font-bold">{stage.title}</p><p className={`mt-1 text-[10px] ${si === stageIndex ? 'text-[#c9dacd]' : 'text-[#7b847d]'}`}>{stage.subtitle}</p></button>{si === stageIndex && <div className="ml-3 mt-2 border-l border-[#b8c8bb] pl-2">{stage.lessons.map((l, li) => <button key={l.title} onClick={() => setLessonIndex(li)} className={`mb-1 w-full rounded-lg px-2 py-2 text-left text-[11px] ${li === lessonIndex ? 'bg-[#fff0d6] font-bold text-[#86501e]' : 'text-[#59665e] hover:bg-white'}`}>{l.title}</button>)}</div>}</div>)}</aside>
+      <div className="grid min-h-0 grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(340px,40%)_minmax(0,60%)]">
+      <div className="grid min-h-[620px] grid-rows-[auto_minmax(0,1fr)] gap-3 lg:min-h-0">
+      <section className="rounded-2xl border border-[#d9c59f] bg-[#fff9eb] p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-[#a06b2e]">{curriculum[stageIndex].title}</p><h2 className="mt-1 text-base font-bold">{lesson.title}</h2><p className="mt-1 text-xs leading-5 text-[#657168]">{lesson.goal}</p></div><span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-[#667269]">{lesson.steps.filter(s => completed[`${stageIndex}-${lessonIndex}-${s.command}`]).length}/{lesson.steps.length}</span></div><div className="mt-3 flex flex-wrap gap-2">{lesson.steps.map((step, i) => <button key={step.command} onClick={() => setCommand(step.command)} title={`观察：${step.watch}`} className={`rounded-lg border px-2.5 py-2 text-left ${completed[`${stageIndex}-${lessonIndex}-${step.command}`] ? 'border-[#83ad8d] bg-[#e3f0e5]' : 'border-[#e2c996] bg-white hover:border-[#c59245]'}`}><span className="mr-1 text-[10px] font-bold text-[#a06b2e]">{i + 1}</span><code className="text-[10px]">{step.command}</code><small className="mt-1 block max-w-[180px] text-[9px] text-[#7b827c]">看：{step.watch}</small></button>)}</div></section>
       <section className="flex min-h-[360px] flex-col overflow-hidden rounded-2xl bg-[#0d2417] shadow-[0_14px_32px_rgba(13,36,23,.18)]">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/10 px-4 text-[#dae7db]"><span className="flex items-center gap-2 text-xs font-bold"><Terminal size={15}/>命令行</span><span className="font-mono text-[10px] text-[#8ca092]">~/git-lab ({current})</span></div>
         <div ref={outputRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 font-mono text-xs leading-6">
@@ -146,6 +177,7 @@ export default function Home() {
           <p className="mt-2 text-[10px] text-[#718678]">输出区高度固定，历史命令会自动向上滚动</p>
         </div>
       </section>
+      </div>
 
       <div className="grid min-h-[680px] grid-rows-[minmax(300px,1fr)_minmax(300px,1fr)] gap-3 lg:min-h-0">
         <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[#1d3d2b]/15 bg-[#fffdf7] shadow-sm">
@@ -160,6 +192,7 @@ export default function Home() {
             <div className="relative overflow-y-auto p-5"><div className="absolute bottom-5 left-[30px] top-5 w-px bg-[#b8ceb9]"/>{visible.map((c, i) => { const heads = Object.entries(branches).filter(([, b]) => b.head === c.id).map(([n]) => n); const remotes = Object.entries(remoteHeads).filter(([, id]) => id === c.id).map(([n]) => n); return <div key={c.id} className="relative mb-5 flex gap-4"><span className={`relative z-10 mt-1 h-4 w-4 shrink-0 rounded-full border-[4px] border-[#fffdf7] ring-2 ${c.branch === 'main' ? 'bg-[#377550] ring-[#377550]' : 'bg-[#d68b38] ring-[#d68b38]'}`}/><div className="min-w-0"><div className="flex flex-wrap gap-1">{heads.map(n => <span key={n} className="branch-label local">{n === current ? `HEAD → ${n}` : n}</span>)}{remotes.map(n => <span key={n} className="branch-label remote"><Cloud size={10}/>origin/{n}</span>)}</div><p className="mt-1 text-xs font-semibold">{c.message}</p><p className="font-mono text-[10px] text-[#89918b]">{c.id} · {c.branch}{c.mergeParent ? ' · merge' : ''}</p></div></div>})}</div>
           </div>
         </section>
+      </div>
       </div>
     </div>
   </main>;
