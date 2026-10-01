@@ -8,6 +8,8 @@
 
 当前演示地址：<https://git-haoxue.wiry-bull-1259.chatgpt.site>
 
+源代码仓库：<https://github.com/wengu03/Git-Mastery-Simulator>
+
 > 网站只有在托管平台设置为“公开访问”后，访客才能免登录使用。GitHub 仓库公开与网站公开是两项独立设置。
 
 ## 为什么做这个项目
@@ -72,8 +74,8 @@ git push
 要求 Node.js 22.13 或更高版本。
 
 ```bash
-git clone git@github.com:YOUR_NAME/git-haoxue.git
-cd git-haoxue
+git clone git@github.com:wengu03/Git-Mastery-Simulator.git
+cd Git-Mastery-Simulator
 npm install
 npm run dev
 ```
