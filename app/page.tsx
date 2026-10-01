@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { Cloud, Code2, FileCode2, GitBranch, Play, RotateCcw, Terminal } from 'lucide-react';
+import { Cloud, Code2, FileCode2, GitBranch, Play, RotateCcw, Terminal, UserPlus } from 'lucide-react';
 
 type Commit = { id: string; message: string; branch: string; parent?: string; mergeParent?: string; content: string };
 type Branch = { head: string; content: string };
@@ -25,6 +25,8 @@ export default function Home() {
   const [staged, setStaged] = useState(false);
   const [remoteHeads, setRemoteHeads] = useState<Record<string, string>>({ main: 'a1b2c3d' });
   const [remoteCode, setRemoteCode] = useState<Record<string, string>>({ main: 'export default function App() {}' });
+  const [serverHeads, setServerHeads] = useState<Record<string, string>>({ main: 'a1b2c3d' });
+  const [serverCode, setServerCode] = useState<Record<string, string>>({ main: 'export default function App() {}' });
   const [viewRef, setViewRef] = useState('local:main');
   const [selectedFile, setSelectedFile] = useState<'src/App.tsx' | 'README.md'>('src/App.tsx');
   const [command, setCommand] = useState('');
@@ -40,6 +42,23 @@ export default function Home() {
   useEffect(() => { outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight, behavior: 'smooth' }); }, [lines]);
 
   function out(kind: Line['kind'], text: string): Line { return { kind, text }; }
+  function isAncestor(ancestor: string, descendant: string): boolean {
+    if (ancestor === descendant) return true;
+    const seen = new Set<string>(), queue = [descendant];
+    while (queue.length) { const id = queue.shift()!; if (seen.has(id)) continue; seen.add(id); const c = commits.find(x => x.id === id); for (const parent of [c?.parent, c?.mergeParent]) { if (parent === ancestor) return true; if (parent) queue.push(parent); } }
+    return false;
+  }
+  function sourceRef(name: string): Branch | undefined {
+    if (name.startsWith('origin/')) { const n = name.slice(7); return remoteHeads[n] ? { head: remoteHeads[n], content: remoteCode[n] } : undefined; }
+    return branches[name];
+  }
+  function mergeSource(sourceName: string, source: Branch): Line[] {
+    const target = branches[current];
+    if (source.head === target.head || isAncestor(source.head, target.head)) return [out('info', 'Already up to date.')];
+    if (isAncestor(target.head, source.head)) { setCode(source.content); setBranches(v => ({ ...v, [current]: { head: source.head, content: source.content } })); return [out('ok', `✓ Fast-forward：${current} 已前进到 ${sourceName}`), out('info', '工作区代码已同步更新')]; }
+    const merged = `<<<<<<< ${current}\n${code}\n=======\n${source.content}\n>>>>>>> ${sourceName}`; setCode(merged); setConflict(true); setStaged(false);
+    return [out('error', 'CONFLICT：src/App.tsx 内容冲突'), out('info', '请编辑并删除冲突标记，再运行 git add . 和 git commit')];
+  }
   function switchTo(name: string): Line[] {
     const target = branches[name];
     if (!target) return [out('error', `分支 ${name} 不存在。用 git branch 查看分支。`)];
@@ -75,23 +94,34 @@ export default function Home() {
       return [out('ok', `✓ 已创建分支 ${name}（当前仍在 ${current}）`), out('info', `下一步可运行：git switch ${name}`)];
     }
     if (p[1] === 'merge') {
-      const sourceName = p[2]; const source = branches[sourceName]; if (!source) return [out('error', `分支 ${sourceName} 不存在`)];
-      if (source.content === code) return [out('info', 'Already up to date.')];
-      const common = commits.find(c => c.id === source.head)?.parent; const currentChanged = branches[current].head !== common;
-      if (currentChanged) { const merged = `<<<<<<< ${current}\n${code}\n=======\n${source.content}\n>>>>>>> ${sourceName}`; setCode(merged); setConflict(true); setStaged(false); return [out('error', 'CONFLICT：src/App.tsx 内容冲突'), out('info', '请在编辑器里保留正确代码并删除冲突标记，然后 add、commit')]; }
-      const id = shortId(); setCode(source.content); setCommits(v => [...v, { id, message: `合并 ${sourceName}`, branch: current, parent: branches[current].head, mergeParent: source.head, content: source.content }]); setBranches(v => ({ ...v, [current]: { head: id, content: source.content } }));
-      return [out('ok', `✓ 已将 ${sourceName} 合并到 ${current}`)];
+      const sourceName = p[2]; if (!sourceName) return [out('error', '用法：git merge <分支名>')]; const source = sourceRef(sourceName); if (!source) return [out('error', `分支 ${sourceName} 不存在；远端分支要先 git fetch`)];
+      if (dirty || staged) return [out('error', '请先提交或恢复当前修改，再执行 merge')];
+      return mergeSource(sourceName, source);
     }
-    if (p[1] === 'push') { setRemoteHeads(v => ({ ...v, [current]: branches[current].head })); setRemoteCode(v => ({ ...v, [current]: branches[current].content })); return [out('ok', `✓ ${current} → origin/${current}`), out('info', `现在可在代码区选择 origin/${current} 查看远端快照`)]; }
-    if (p[1] === 'fetch') return [out('ok', '✓ 已更新远端跟踪分支，工作区未改变')];
-    if (p[1] === 'pull') return [out('info', '当前模拟仓库没有新的远端提交')];
+    if (p[1] === 'push') {
+      const tracked = remoteHeads[current], server = serverHeads[current];
+      if (server && tracked !== server) return [out('error', '! [rejected] 远端包含你本地不知道的新提交'), out('info', '请先运行 git fetch，再 merge origin/' + current)];
+      if (server && !isAncestor(server, branches[current].head)) return [out('error', '! [rejected] non-fast-forward'), out('info', '需要先合并远端分支')];
+      const head = branches[current].head, content = branches[current].content; setServerHeads(v => ({ ...v, [current]: head })); setServerCode(v => ({ ...v, [current]: content })); setRemoteHeads(v => ({ ...v, [current]: head })); setRemoteCode(v => ({ ...v, [current]: content }));
+      return [out('ok', `✓ ${current} → origin/${current}`), out('info', '远端服务器和 origin 跟踪指针均已更新')];
+    }
+    if (p[1] === 'fetch') { setRemoteHeads({ ...serverHeads }); setRemoteCode({ ...serverCode }); const changed = Object.keys(serverHeads).filter(n => remoteHeads[n] !== serverHeads[n]); return changed.length ? [out('ok', `✓ 已获取：${changed.map(n => `origin/${n}`).join('、')}`), out('info', 'fetch 只更新 origin/*，当前分支和代码没有改变')] : [out('info', 'Already up to date. 远端跟踪分支没有变化')]; }
+    if (p[1] === 'pull') {
+      if (dirty || staged) return [out('error', '请先提交或恢复当前修改，再执行 pull')];
+      const source = serverHeads[current] ? { head: serverHeads[current], content: serverCode[current] } : undefined; if (!source) return [out('error', `远端没有 ${current} 分支`)];
+      setRemoteHeads(v => ({ ...v, [current]: source.head })); setRemoteCode(v => ({ ...v, [current]: source.content }));
+      return [out('ok', `✓ fetch origin/${current}`), ...mergeSource(`origin/${current}`, source)];
+    }
+    if (p[1] === 'diff') return [out('info', dirty ? `--- 已提交的 src/App.tsx\n+++ 工作区 src/App.tsx\n@@ 代码内容已发生变化 @@` : '没有差异')];
+    if (p[1] === 'restore' && p[2]) { setCode(branches[current].content); setStaged(false); setConflict(false); return [out('ok', `✓ 已恢复 ${p[2]}`)]; }
     if (p[1] === 'log') return commits.slice().reverse().map(c => out('info', `${c.id}  ${c.message}  (${c.branch})`));
-    if (cmd === 'help' || cmd === '帮助') return [out('info', 'status · add · commit · branch · switch · merge · log · push · fetch · pull')];
+    if (cmd === 'help' || cmd === '帮助') return [out('info', 'status · diff · add · commit · restore · branch · switch · merge · log · push · fetch · pull')];
     return [out('error', `暂不支持“${cmd}”。输入 help 查看命令。`)];
   }
 
   function run(e: FormEvent) { e.preventDefault(); const cmd = command.trim(); if (!cmd) return; setLines(v => [...v, out('cmd', `$ ${cmd}`), ...execute(cmd)]); setCommand(''); }
-  function reset() { setCommits(firstCommits); setBranches({ main: { head: 'd4e5f6a', content: firstCode } }); setCurrent('main'); setCode(firstCode); setStaged(false); setConflict(false); setRemoteHeads({ main: 'a1b2c3d' }); setRemoteCode({ main: 'export default function App() {}' }); setViewRef('local:main'); setSelectedFile('src/App.tsx'); setLines([out('info', '练习场已重置。')]); }
+  function simulateTeammate() { const branch = 'main', parent = serverHeads[branch], id = shortId(), content = `${serverCode[branch]}\n\n// 队友刚刚更新了远端代码`; setCommits(v => [...v, { id, message: '队友更新了远端代码', branch: 'remote/main', parent, content }]); setServerHeads(v => ({ ...v, [branch]: id })); setServerCode(v => ({ ...v, [branch]: content })); setLines(v => [...v, out('info', '☁ 队友已向远端 main 推送了一个提交'), out('info', '你的 origin/main 尚未更新；请运行 git fetch')]); }
+  function reset() { setCommits(firstCommits); setBranches({ main: { head: 'd4e5f6a', content: firstCode } }); setCurrent('main'); setCode(firstCode); setStaged(false); setConflict(false); setRemoteHeads({ main: 'a1b2c3d' }); setRemoteCode({ main: 'export default function App() {}' }); setServerHeads({ main: 'a1b2c3d' }); setServerCode({ main: 'export default function App() {}' }); setViewRef('local:main'); setSelectedFile('src/App.tsx'); setLines([out('info', '练习场已重置。')]); }
 
   const visible = commits.slice().reverse();
   const [viewKind, viewName] = viewRef.split(':');
@@ -102,7 +132,7 @@ export default function Home() {
     <header className="flex h-14 items-center justify-between border-b border-[#1d3d2b]/15 bg-[#fbf8f0] px-4 lg:px-6">
       <div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#173e2b] text-white"><GitBranch size={18}/></span><b>Git 好好学</b><span className="rounded-full bg-[#e5eadc] px-2 py-1 text-[10px] font-bold text-[#52705c]">可编辑实验室</span></div>
       <div className="text-xs text-[#657168]">当前分支：<b className="rounded bg-[#dcebdd] px-2 py-1 font-mono text-[#27613f]">{current}</b></div>
-      <button onClick={reset} className="flex items-center gap-2 rounded-lg border border-[#1d3d2b]/20 bg-white px-3 py-2 text-xs font-semibold"><RotateCcw size={13}/>重置</button>
+      <div className="flex gap-2"><button onClick={simulateTeammate} className="flex items-center gap-2 rounded-lg border border-[#b7732e]/25 bg-[#fff2dc] px-3 py-2 text-xs font-semibold text-[#86501e]"><UserPlus size={13}/>模拟队友提交</button><button onClick={reset} className="flex items-center gap-2 rounded-lg border border-[#1d3d2b]/20 bg-white px-3 py-2 text-xs font-semibold"><RotateCcw size={13}/>重置</button></div>
     </header>
 
     <div className="grid h-[calc(100vh-56px)] min-h-0 grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(340px,40%)_minmax(0,60%)]">
@@ -124,7 +154,7 @@ export default function Home() {
         </section>
 
         <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[#1d3d2b]/15 bg-[#fffdf7] shadow-sm">
-          <div className="panel-title shrink-0"><span><GitBranch size={15}/>分支与提交树</span><div className="flex gap-2"><span className="tag-green">本地</span><span className="tag-orange">origin</span></div></div>
+          <div className="panel-title shrink-0"><span><GitBranch size={15}/>分支与提交树</span><div className="flex gap-2"><span className="tag-green">本地</span><span className="tag-orange">origin 跟踪</span>{Object.keys(serverHeads).some(n => serverHeads[n] !== remoteHeads[n]) && <span className="tag-red">远端有新提交</span>}</div></div>
           <div className="grid min-h-0 flex-1 grid-cols-[150px_minmax(0,1fr)] overflow-hidden">
             <aside className="overflow-y-auto border-r border-[#1d3d2b]/10 bg-[#f6f3ea] p-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[#7f877f]">本地分支</p>{Object.entries(branches).map(([name, b]) => <button key={name} onClick={() => setViewRef(`local:${name}`)} className={`mb-1 w-full rounded-lg px-2 py-2 text-left font-mono text-[11px] ${viewRef === `local:${name}` ? 'bg-[#dcebdd] font-bold text-[#27613f]' : 'hover:bg-white'}`}><span className="mr-1">{name === current ? '●' : '○'}</span>{name}<small className="mt-1 block pl-4 text-[9px] opacity-60">{b.head}</small></button>)}<p className="mb-2 mt-4 text-[10px] font-bold uppercase tracking-wider text-[#a16a2c]">远端分支</p>{Object.entries(remoteHeads).map(([name, head]) => <button key={`origin/${name}`} onClick={() => setViewRef(`remote:${name}`)} className={`mb-1 w-full rounded-lg px-2 py-2 text-left font-mono text-[11px] ${viewRef === `remote:${name}` ? 'bg-[#fae7ce] font-bold text-[#955d22]' : 'hover:bg-white'}`}><Cloud size={10} className="mr-1 inline"/>origin/{name}<small className="mt-1 block pl-4 text-[9px] opacity-60">{head}</small></button>)}</aside>
             <div className="relative overflow-y-auto p-5"><div className="absolute bottom-5 left-[30px] top-5 w-px bg-[#b8ceb9]"/>{visible.map((c, i) => { const heads = Object.entries(branches).filter(([, b]) => b.head === c.id).map(([n]) => n); const remotes = Object.entries(remoteHeads).filter(([, id]) => id === c.id).map(([n]) => n); return <div key={c.id} className="relative mb-5 flex gap-4"><span className={`relative z-10 mt-1 h-4 w-4 shrink-0 rounded-full border-[4px] border-[#fffdf7] ring-2 ${c.branch === 'main' ? 'bg-[#377550] ring-[#377550]' : 'bg-[#d68b38] ring-[#d68b38]'}`}/><div className="min-w-0"><div className="flex flex-wrap gap-1">{heads.map(n => <span key={n} className="branch-label local">{n === current ? `HEAD → ${n}` : n}</span>)}{remotes.map(n => <span key={n} className="branch-label remote"><Cloud size={10}/>origin/{n}</span>)}</div><p className="mt-1 text-xs font-semibold">{c.message}</p><p className="font-mono text-[10px] text-[#89918b]">{c.id} · {c.branch}{c.mergeParent ? ' · merge' : ''}</p></div></div>})}</div>
