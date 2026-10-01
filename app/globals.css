@@ -92,6 +92,8 @@ button { cursor: pointer; }
 .panel-title > span:first-child { display:flex; align-items:center; gap:8px; }
 .tag-yellow,.tag-green,.tag-orange { border-radius:999px; padding:4px 8px; font-size:10px; font-weight:700; }
 .tag-yellow { background:#fff0cf; color:#98601f; }.tag-green { background:#dfeee1; color:#316647; }.tag-orange { background:#fae7ce; color:#995e20; }
+.tag-red,.tag-muted { border-radius:999px; padding:4px 8px; font-size:10px; font-weight:700; }
+.tag-red { background:#fde1da; color:#a3402d; }.tag-muted { background:#ecece6; color:#6f776f; }
 .state-dot { width:8px; height:8px; border-radius:50%; }.branch-label { display:inline-flex; align-items:center; gap:4px; border-radius:6px; padding:3px 7px; font:700 10px var(--font-mono-app),monospace; }.branch-label.local { background:#dcecdf; color:#286441; }.branch-label.remote { background:#f8e1c4; color:#975917; }
 code, pre { font-family:var(--font-mono-app),monospace; }
 
