@@ -9,6 +9,27 @@ type Line = { kind: 'cmd' | 'ok' | 'info' | 'error'; text: string };
 type Lesson = { title: string; goal: string; steps: { command: string; watch: string }[] };
 type Stage = { title: string; subtitle: string; lessons: Lesson[] };
 
+const commandHelp: Record<string, string> = {
+  'git status': '读取当前工作区和暂存区，不修改任何内容。重点确认文件处于“未修改、未暂存、已暂存”中的哪一种状态。',
+  'git diff': '比较当前工作区与当前分支最近一次提交，只显示尚未放入暂存区的代码变化。',
+  'git add .': '把当前项目的修改从工作区复制到暂存区，为下一次提交选择内容；它还没有产生提交。',
+  'git commit -m "完成第一次修改"': '把暂存区保存为当前分支 main 上的新提交，main 与 HEAD 会一起移动到新节点。',
+  'git commit -m "完善首页"': '把暂存内容提交到当前 feature/home 分支，不会影响 main 分支。',
+  'git commit -m "解决合并冲突"': '把人工解决后的文件保存为新提交，记录这次冲突解决的最终结果。',
+  'git log': '从当前分支的 HEAD 开始查看提交历史，不会改变分支、文件或暂存区。',
+  'git branch yhx': '从当前 HEAD 创建 yhx 指针，但仍停留在原分支；右下应新增 yhx，HEAD 不移动。',
+  'git switch yhx': '把 HEAD 从当前分支切换到 yhx，并把工作区代码替换为 yhx 最近一次提交的快照。',
+  'git switch -c feature/home': '从当前提交创建 feature/home，并立刻把 HEAD 切换到这个新分支。',
+  'git switch main': '把 HEAD 切回 main，并把编辑器恢复为 main 分支自己的代码快照。',
+  'git merge main': '把 main 分支的提交合入当前分支；目标永远是当前分支，来源是 main。',
+  'git merge feature/home': '当前应位于 main：把 feature/home 的提交合入 main，来源是 feature/home，目标是 main。',
+  'git merge origin/main': '把上一次 fetch 得到的 origin/main 合入当前本地分支；不会直接修改远端服务器。',
+  'git restore src/App.tsx': '丢弃 src/App.tsx 尚未提交的编辑，恢复为当前分支最近一次提交中的内容。',
+  'git fetch': '从真实远端下载最新提交并更新 origin/* 跟踪指针；当前本地分支和工作区代码保持不变。',
+  'git pull': '先 fetch 当前远端分支，再把 origin/当前分支合入本地当前分支，相当于两个步骤的组合。',
+  'git push': '把本地当前分支的新提交上传到同名远端分支；若远端领先，本次推送会被拒绝。',
+};
+
 const curriculum: Stage[] = [
   { title: '第一阶段 · 入门', subtitle: '认识 Git 与核心指令', lessons: [
     { title: '01 观察仓库状态', goal: '先学会问 Git：现在发生了什么？', steps: [{ command: 'git status', watch: '看终端如何区分工作区、暂存区状态' }, { command: 'git diff', watch: '修改右上代码后，看未提交的差异' }] },
@@ -56,6 +77,8 @@ export default function Home() {
   const [viewRef, setViewRef] = useState('local:main');
   const [selectedFile, setSelectedFile] = useState<'src/App.tsx' | 'README.md'>('src/App.tsx');
   const [command, setCommand] = useState('');
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
   const [conflict, setConflict] = useState(false);
   const [lines, setLines] = useState<Line[]>([
     { kind: 'info', text: '这是安全的模拟环境。编辑右上方代码，然后试试 git status。' },
@@ -145,9 +168,11 @@ export default function Home() {
     return [out('error', `暂不支持“${cmd}”。输入 help 查看命令。`)];
   }
 
-  function run(e: FormEvent) { e.preventDefault(); const cmd = command.trim(); if (!cmd) return; setLines(v => [...v, out('cmd', `$ ${cmd}`), ...execute(cmd)]); const key = `${stageIndex}-${lessonIndex}-${cmd}`; if (curriculum[stageIndex].lessons[lessonIndex].steps.some(s => s.command === cmd)) setCompleted(v => ({ ...v, [key]: true })); setCommand(''); }
+  function run(e: FormEvent) { e.preventDefault(); const cmd = command.trim(); if (!cmd) return; setLines(v => [...v, out('cmd', `$ ${cmd}`), ...execute(cmd)]); const key = `${stageIndex}-${lessonIndex}-${cmd}`; if (curriculum[stageIndex].lessons[lessonIndex].steps.some(s => s.command === cmd)) setCompleted(v => ({ ...v, [key]: true })); setHistory(v => [...v.filter(x => x !== cmd), cmd]); setHistoryIndex(-1); setCommand(''); }
+  function browseHistory(direction: 'up' | 'down') { if (!history.length) return; const next = direction === 'up' ? Math.min(historyIndex + 1, history.length - 1) : Math.max(historyIndex - 1, -1); setHistoryIndex(next); setCommand(next === -1 ? '' : history[history.length - 1 - next]); }
   function simulateTeammate() { const branch = 'main', parent = serverHeads[branch], id = shortId(), content = `${serverCode[branch]}\n\n// 队友刚刚更新了远端代码`; setCommits(v => [...v, { id, message: '队友更新了远端代码', branch: 'remote/main', parent, content }]); setServerHeads(v => ({ ...v, [branch]: id })); setServerCode(v => ({ ...v, [branch]: content })); setLines(v => [...v, out('info', '☁ 队友已向远端 main 推送了一个提交'), out('info', '你的 origin/main 尚未更新；请运行 git fetch')]); }
-  function reset() { setCommits(firstCommits); setBranches({ main: { head: 'd4e5f6a', content: firstCode } }); setCurrent('main'); setCode(firstCode); setStaged(false); setConflict(false); setRemoteHeads({ main: 'a1b2c3d' }); setRemoteCode({ main: 'export default function App() {}' }); setServerHeads({ main: 'a1b2c3d' }); setServerCode({ main: 'export default function App() {}' }); setViewRef('local:main'); setSelectedFile('src/App.tsx'); setLines([out('info', '练习场已重置。')]); }
+  function resetWorkspace(message = '练习场已重置。') { setCommits(firstCommits); setBranches({ main: { head: 'd4e5f6a', content: firstCode } }); setCurrent('main'); setCode(firstCode); setStaged(false); setConflict(false); setRemoteHeads({ main: 'a1b2c3d' }); setRemoteCode({ main: 'export default function App() {}' }); setServerHeads({ main: 'a1b2c3d' }); setServerCode({ main: 'export default function App() {}' }); setViewRef('local:main'); setSelectedFile('src/App.tsx'); setLines([out('info', message)]); setCommand(''); setHistory([]); setHistoryIndex(-1); }
+  function chooseLesson(si: number, li: number) { setStageIndex(si); setLessonIndex(li); resetWorkspace(`已进入“${curriculum[si].lessons[li].title}”，仓库与终端已恢复为初始状态。`); }
 
   const visible = commits.slice().reverse();
   const [viewKind, viewName] = viewRef.split(':');
@@ -159,22 +184,22 @@ export default function Home() {
     <header className="flex h-14 items-center justify-between border-b border-[#1d3d2b]/15 bg-[#fbf8f0] px-4 lg:px-6">
       <div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#173e2b] text-white"><GitBranch size={18}/></span><b>Git 好好学</b><span className="rounded-full bg-[#e5eadc] px-2 py-1 text-[10px] font-bold text-[#52705c]">可编辑实验室</span></div>
       <div className="text-xs text-[#657168]">当前分支：<b className="rounded bg-[#dcebdd] px-2 py-1 font-mono text-[#27613f]">{current}</b></div>
-      <div className="flex gap-2"><button onClick={simulateTeammate} className="flex items-center gap-2 rounded-lg border border-[#b7732e]/25 bg-[#fff2dc] px-3 py-2 text-xs font-semibold text-[#86501e]"><UserPlus size={13}/>模拟队友提交</button><button onClick={reset} className="flex items-center gap-2 rounded-lg border border-[#1d3d2b]/20 bg-white px-3 py-2 text-xs font-semibold"><RotateCcw size={13}/>重置</button></div>
+      <div className="flex gap-2"><button onClick={simulateTeammate} className="flex items-center gap-2 rounded-lg border border-[#b7732e]/25 bg-[#fff2dc] px-3 py-2 text-xs font-semibold text-[#86501e]"><UserPlus size={13}/>模拟队友提交</button><button onClick={() => resetWorkspace()} className="flex items-center gap-2 rounded-lg border border-[#1d3d2b]/20 bg-white px-3 py-2 text-xs font-semibold"><RotateCcw size={13}/>重置</button></div>
     </header>
 
     <div className="grid h-[calc(100vh-56px)] min-h-0 grid-cols-1 xl:grid-cols-[224px_minmax(0,1fr)]">
-      <aside className="hidden min-h-0 overflow-y-auto border-r border-[#1d3d2b]/15 bg-[#fbf8f0] p-3 xl:block"><p className="px-2 pb-3 pt-1 text-[10px] font-bold uppercase tracking-[.18em] text-[#7d877f]">从入门到团队协作</p>{curriculum.map((stage, si) => <div key={stage.title} className="mb-3"><button onClick={() => { setStageIndex(si); setLessonIndex(0); }} className={`w-full rounded-xl p-3 text-left ${si === stageIndex ? 'bg-[#173e2b] text-white shadow-sm' : 'hover:bg-[#eeece3]'}`}><p className="text-xs font-bold">{stage.title}</p><p className={`mt-1 text-[10px] ${si === stageIndex ? 'text-[#c9dacd]' : 'text-[#7b847d]'}`}>{stage.subtitle}</p></button>{si === stageIndex && <div className="ml-3 mt-2 border-l border-[#b8c8bb] pl-2">{stage.lessons.map((l, li) => <button key={l.title} onClick={() => setLessonIndex(li)} className={`mb-1 w-full rounded-lg px-2 py-2 text-left text-[11px] ${li === lessonIndex ? 'bg-[#fff0d6] font-bold text-[#86501e]' : 'text-[#59665e] hover:bg-white'}`}>{l.title}</button>)}</div>}</div>)}</aside>
+      <aside className="hidden min-h-0 overflow-y-auto border-r border-[#1d3d2b]/15 bg-[#fbf8f0] p-3 xl:block"><p className="px-2 pb-3 pt-1 text-[10px] font-bold uppercase tracking-[.18em] text-[#7d877f]">从入门到团队协作</p>{curriculum.map((stage, si) => <div key={stage.title} className="mb-3"><button onClick={() => chooseLesson(si, 0)} className={`w-full rounded-xl p-3 text-left ${si === stageIndex ? 'bg-[#173e2b] text-white shadow-sm' : 'hover:bg-[#eeece3]'}`}><p className="text-xs font-bold">{stage.title}</p><p className={`mt-1 text-[10px] ${si === stageIndex ? 'text-[#c9dacd]' : 'text-[#7b847d]'}`}>{stage.subtitle}</p></button>{si === stageIndex && <div className="ml-3 mt-2 border-l border-[#b8c8bb] pl-2">{stage.lessons.map((l, li) => <button key={l.title} onClick={() => chooseLesson(si, li)} className={`mb-1 w-full rounded-lg px-2 py-2 text-left text-[11px] ${li === lessonIndex ? 'bg-[#fff0d6] font-bold text-[#86501e]' : 'text-[#59665e] hover:bg-white'}`}>{l.title}</button>)}</div>}</div>)}</aside>
       <div className="grid min-h-0 grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(340px,40%)_minmax(0,60%)]">
       <div className="grid min-h-[620px] grid-rows-[auto_minmax(0,1fr)] gap-3 lg:min-h-0">
-      <section className="rounded-2xl border border-[#d9c59f] bg-[#fff9eb] p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-[#a06b2e]">{curriculum[stageIndex].title}</p><h2 className="mt-1 text-base font-bold">{lesson.title}</h2><p className="mt-1 text-xs leading-5 text-[#657168]">{lesson.goal}</p></div><span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-[#667269]">{lesson.steps.filter(s => completed[`${stageIndex}-${lessonIndex}-${s.command}`]).length}/{lesson.steps.length}</span></div><div className="mt-3 flex flex-wrap gap-2">{lesson.steps.map((step, i) => <button key={step.command} onClick={() => setCommand(step.command)} title={`观察：${step.watch}`} className={`rounded-lg border px-2.5 py-2 text-left ${completed[`${stageIndex}-${lessonIndex}-${step.command}`] ? 'border-[#83ad8d] bg-[#e3f0e5]' : 'border-[#e2c996] bg-white hover:border-[#c59245]'}`}><span className="mr-1 text-[10px] font-bold text-[#a06b2e]">{i + 1}</span><code className="text-[10px]">{step.command}</code><small className="mt-1 block max-w-[180px] text-[9px] text-[#7b827c]">看：{step.watch}</small></button>)}</div></section>
+      <section className="max-h-[250px] overflow-y-auto rounded-2xl border border-[#d9c59f] bg-[#fff9eb] p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-[#a06b2e]">{curriculum[stageIndex].title}</p><h2 className="mt-1 text-base font-bold">{lesson.title}</h2><p className="mt-1 text-xs leading-5 text-[#657168]">{lesson.goal}</p></div><span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-[#667269]">{lesson.steps.filter(s => completed[`${stageIndex}-${lessonIndex}-${s.command}`]).length}/{lesson.steps.length}</span></div><div className="mt-3 space-y-2">{lesson.steps.map((step, i) => <button key={step.command} onClick={() => setCommand(step.command)} className={`w-full rounded-lg border px-3 py-2 text-left ${completed[`${stageIndex}-${lessonIndex}-${step.command}`] ? 'border-[#83ad8d] bg-[#e3f0e5]' : 'border-[#e2c996] bg-white hover:border-[#c59245]'}`}><span className="mr-2 text-[10px] font-bold text-[#a06b2e]">步骤 {i + 1}</span><code className="text-[10px] font-bold">{step.command}</code><small className="mt-1 block text-[10px] leading-4 text-[#59665e]">作用：{commandHelp[step.command] ?? '执行本节练习命令并观察仓库状态变化。'}</small><small className="mt-1 block text-[10px] leading-4 text-[#7b827c]">观察：{step.watch}</small></button>)}</div></section>
       <section className="flex min-h-[360px] flex-col overflow-hidden rounded-2xl bg-[#0d2417] shadow-[0_14px_32px_rgba(13,36,23,.18)]">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/10 px-4 text-[#dae7db]"><span className="flex items-center gap-2 text-xs font-bold"><Terminal size={15}/>命令行</span><span className="font-mono text-[10px] text-[#8ca092]">~/git-lab ({current})</span></div>
         <div ref={outputRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 font-mono text-xs leading-6">
           {lines.map((l, i) => <div key={i} className={l.kind === 'error' ? 'text-[#ff9a83]' : l.kind === 'ok' ? 'text-[#82dda2]' : l.kind === 'cmd' ? 'mt-2 text-white' : 'whitespace-pre-line text-[#aec1b2]'}>{l.text}</div>)}
         </div>
         <div className="shrink-0 border-t border-white/10 bg-[#091c11] p-3">
-          <form onSubmit={run} className="flex items-center rounded-xl border border-white/10 bg-white/[.04] px-3"><span className="font-mono text-sm text-[#eea74f]">$</span><input value={command} onChange={e => setCommand(e.target.value)} aria-label="Git 命令" placeholder="输入 git 命令…" className="h-12 min-w-0 flex-1 bg-transparent px-3 font-mono text-xs text-white outline-none placeholder:text-[#5f7767]"/><button className="rounded-lg bg-[#eca44d] p-2 text-[#173522]"><Play size={14} fill="currentColor"/></button></form>
-          <p className="mt-2 text-[10px] text-[#718678]">输出区高度固定，历史命令会自动向上滚动</p>
+          <form onSubmit={run} className="flex items-center rounded-xl border border-white/10 bg-white/[.04] px-3"><span className="font-mono text-sm text-[#eea74f]">$</span><input value={command} onChange={e => setCommand(e.target.value)} onKeyDown={e => { if (e.key === 'ArrowUp') { e.preventDefault(); browseHistory('up'); } if (e.key === 'ArrowDown') { e.preventDefault(); browseHistory('down'); } }} aria-label="Git 命令" placeholder="输入 git 命令…" className="h-12 min-w-0 flex-1 bg-transparent px-3 font-mono text-xs text-white outline-none placeholder:text-[#5f7767]"/><button className="rounded-lg bg-[#eca44d] p-2 text-[#173522]"><Play size={14} fill="currentColor"/></button></form>
+          <p className="mt-2 text-[10px] text-[#718678]">↑ / ↓ 查看历史命令 · 输出区固定并自动滚动</p>
         </div>
       </section>
       </div>
